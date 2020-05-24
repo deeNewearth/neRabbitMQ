@@ -1,0 +1,2 @@
+# neRabbitMQ
+Opinionated RabbitMQ wrapper 
