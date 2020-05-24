@@ -97,7 +97,7 @@ namespace neMQConnector
 
             try
             {
-                _myConfig = _configuration.GetValue<MyConfig>("rabbitMQ");
+                _myConfig = _configuration.GetSection("rabbitMQ").Get<MyConfig>();
                 if (null == _myConfig)
                     throw new Exception("config section rabbitMQ not found");
 

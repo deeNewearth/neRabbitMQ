@@ -4,6 +4,9 @@ using System.Text;
 
 namespace neMQConnector
 {
+    /// <summary>
+    /// read from config section rabbitMQ
+    /// </summary>
     public class MyConfig
     {
         public string exchange { get; set; }
