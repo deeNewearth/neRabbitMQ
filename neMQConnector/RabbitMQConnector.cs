@@ -16,52 +16,10 @@ using System.Diagnostics;
 
 namespace neMQConnector
 {
-    public delegate Task MQObserverFn(MQObserverFnParamsModel e);
+    
 
-    public interface IMqCallback
-    {
-        MQObserverFn callback { get; }
-    }
-
-    /// <summary>
-    /// We only put a identfier ID in rabbit MQ. 
-    /// The idea is to let an observer know that it has something in the Queue.
-    /// it is possible that by the time the observer wants to process the task. It is no longer required
-    /// Observers should look at other status fields in mongo to find out if the task is still relevent
-    /// </summary>
-    public interface IRabbitMQConnector
-    {
-        Task StartAsync();
-        void Teardown();
-
-        Task publishAsync(string routingKey, MQSubjectModel message);
-
-        /// <summary>
-        /// Subscribe to a message Q
-        /// </summary>
-        /// <param name="name">User friendly name of the subscription. Doesn't need to be unique. This is useful in identifying in the admin view</param>
-        /// <param name="routingKey"></param>
-        /// <param name="actionAsync"></param>
-        /// <param name="manualAck"></param>
-        /// <param name="preFetchCount"></param>
-        /// <returns></returns>
-        Task AddObserverAsync(string name, string routingKey, MQObserverFn actionAsync, bool manualAck = false, ushort preFetchCount = 1);
-
-        Task<IMqCallback> AddObserverAsync(MQObserverIdModel observerId, MQObserverFn actionAsync);
-
-        Task<IMqCallback> AddObserverAsync(MQObserverIdModel observerId, IMqCallback cbObject);
-
-        //Creates a channel to be used for pull and Manual Ack
-        /*   Task<MQObserverIdModel> AddMQPullerAsync(string name, string routingKey);
-        IEnumerable<MQObserverFnParamsModel> GetMessages(MQObserverIdModel observerId);
-        */
-
-        void Ack(MQObserverIdModel observerId, ulong deliveryTag);
-
-        void RemoveObserver(MQObserverIdModel observerId);
-
-        IReadOnlyDictionary<MQObserverIdModel, IMqCallback> currentObservers { get; }
-    }
+    
+    
 
     /// <summary>
     /// The MQ connector SINGLETON
@@ -375,6 +333,11 @@ namespace neMQConnector
             public QNoRetryException(string message, Exception inner = null) : base(message, inner) { }
         }
 
+        /// <summary>
+        /// we want this to be reset when we reboot this service
+        /// </summary>
+        static readonly Guid _serviceInstanceId = Guid.NewGuid();
+
         void startWorker(KeyValuePair<MQObserverIdModel, ConsumerChannel> observer)
         {
             _logger.LogInformation($"Staring observer {observer.Key}");
@@ -409,13 +372,11 @@ namespace neMQConnector
                 {
                     Task.Factory.StartNew(async () =>
                     {
+                        MQSubjectModel msgSubject =null;
                         try
                         {
                             var message = Encoding.UTF8.GetString(ea.Body);
                             _logger.LogDebug($"RabbitMQ message {ea.DeliveryTag} Received '{ea.RoutingKey}':'{message}'");
-
-                            MQSubjectModel msgSubject;
-
 
                             try
                             {
@@ -428,7 +389,6 @@ namespace neMQConnector
                                 Debug.Assert(false);
                                 throw new QNoRetryException($"MQSubjectModel cannot be deserialized :{message} ", inner: ex);
                             }
-
 
                             var dataToSend = new MQObserverFnParamsModel
                             {
@@ -455,9 +415,44 @@ namespace neMQConnector
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogWarning(ex, $"exception {ea.DeliveryTag}");
-                            await Task.Delay(TimeSpan.FromSeconds(5));
-                            consumeChannel.BasicReject(ea.DeliveryTag, true);
+                            _logger.LogError(ex, $"Exception while processing message {ea.DeliveryTag}");
+
+                            if(null == msgSubject)
+                            {
+                                _logger.LogCritical(ex,"We should not be here is we failed to serialize the message");
+                                consumeChannel.BasicReject(ea.DeliveryTag, false);
+                            }
+
+                            if(null == msgSubject.connectorInstanceData)
+                            {
+                                _logger.LogDebug("this message does not uses advance requing");
+                                consumeChannel.BasicReject(ea.DeliveryTag, true);
+                                return;
+                            }
+
+                            if (!msgSubject.connectorInstanceData.ContainsKey(_serviceInstanceId))
+                            {
+                                msgSubject.connectorInstanceData[_serviceInstanceId] = new ConnectorInfoModel();
+                            }
+
+                            var retryCount = ++msgSubject.connectorInstanceData[_serviceInstanceId].retryCount;
+                            if (retryCount > 5)
+                            {
+                                var delaySeconds = 5 * (retryCount - 5);
+                                _logger.LogDebug($"message {ea.DeliveryTag} has failed {retryCount} times. We will delay by {delaySeconds} seconds");
+                                await Task.Delay(TimeSpan.FromSeconds(delaySeconds));
+                            }
+                            else
+                            {
+                                _logger.LogDebug($"message {ea.DeliveryTag} has failed {retryCount} times.");
+                            }
+
+                            await this.publishAsync(ea.RoutingKey, msgSubject);
+
+                            consumeChannel.BasicReject(ea.DeliveryTag, false);
+
+                            //dee todo: Dead Exchange logic here
+
                         }
                     },CancellationToken.None,TaskCreationOptions.None,_ObserverScheduler);
 

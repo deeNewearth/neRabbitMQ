@@ -3,6 +3,7 @@ using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection.Metadata.Ecma335;
 using System.Threading.Tasks;
 
 namespace neMQConnector
@@ -32,6 +33,11 @@ namespace neMQConnector
         [ExportAsOptional]
         public string qualifiedName => this.GetType().AssemblyQualifiedName;
 
+        /// <summary>
+        /// contains internal data for a consumer 
+        /// </summary>
+        public Dictionary<Guid, ConnectorInfoModel> connectorInstanceData { get; set; }
+
         public T convertedTo<T>() where T: MQSubjectModel
         {
             var requiredType = typeof(T);
@@ -41,6 +47,19 @@ namespace neMQConnector
                 throw new InvalidOperationException($"cannot get {requiredType} from {actualType}");
 
             return this as T;
+        }
+
+        public MQSubjectModel(string _subjetId)
+            :this()
+        {
+            this.subjectId = _subjetId;
+        }
+
+
+        [JsonConstructor]
+        private MQSubjectModel()
+        {
+            connectorInstanceData = new Dictionary<Guid, ConnectorInfoModel>();
         }
     }
 
