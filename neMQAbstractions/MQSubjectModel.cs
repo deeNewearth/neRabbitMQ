@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 
 namespace neMQConnector
 {
+ 
     [JsonConverter(typeof(MQSubjectModelConverter))]
     public class MQSubjectModel
     {
@@ -36,6 +37,7 @@ namespace neMQConnector
         /// <summary>
         /// contains internal data for a consumer 
         /// </summary>
+        [JsonIgnore]
         public Dictionary<Guid, ConnectorInfoModel> connectorInstanceData { get; set; }
 
         public T convertedTo<T>() where T: MQSubjectModel
