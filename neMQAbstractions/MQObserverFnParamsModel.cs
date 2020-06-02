@@ -11,6 +11,8 @@ namespace neMQConnector
         public ulong deliveryTag { get; set; }
         public ulong messageCount { get; set; }
 
+        public bool isRedelivered { get; set; }
+
         /// <summary>
         /// Get the mesage that is to be sent over the wire
         /// </summary>

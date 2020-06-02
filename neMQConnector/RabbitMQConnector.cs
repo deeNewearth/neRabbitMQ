@@ -31,7 +31,7 @@ namespace neMQConnector
     /// services.AddSingleton<IHostedService, neMQConnector.RabbitMQService>();
     /// 
     /// </summary>
-    public class RabbitMQConnector : IRabbitMQConnector
+    public partial class RabbitMQConnector : IRabbitMQConnector
     {
         readonly MyConfig _myConfig;
         readonly ILogger _logger;
@@ -132,18 +132,7 @@ namespace neMQConnector
         }
 
 
-        /*
-        public Task<MQObserverIdModel> AddMQPullerAsync(string name, string routingKey)
-        {
-            return AddObserverAsync(new MQObserverIdModel
-            {
-                name = name,
-                routingKey = routingKey,
-                pullEnabled = true
-            });
-        }
-        */
-
+        
         public IReadOnlyDictionary<MQObserverIdModel, IMqCallback> currentObservers { get { return _observers.ToDictionary(k => k.Key, v => v.Value.callbackObject); } }
 
         public void Ack(MQObserverIdModel observerId, ulong deliveryTag)
@@ -258,7 +247,7 @@ namespace neMQConnector
 
             _Servicestarted = false;
             _amqpConn = null;
-            _publishChannel = null;
+            
 
             foreach (var c in _observers)
                 c.Value.channel = null;
@@ -306,7 +295,6 @@ namespace neMQConnector
 
                 _logger.LogInformation("connection established");
 
-                startPublisher();
 
                 foreach (var c in _observers)
                     startWorker(c);
@@ -338,6 +326,8 @@ namespace neMQConnector
         /// </summary>
         static readonly Guid _serviceInstanceId = Guid.NewGuid();
 
+        public Guid currentInstanceId { get => _serviceInstanceId; }
+
         void startWorker(KeyValuePair<MQObserverIdModel, ConsumerChannel> observer)
         {
             _logger.LogInformation($"Staring observer {observer.Key}");
@@ -348,13 +338,18 @@ namespace neMQConnector
 
             consumeChannel.BasicQos(prefetchSize: 0, prefetchCount: observer.Key.preFetchCount, global: false);
 
-
+            Dictionary<string, object> qArgs = null;
+            if(observer.Key.maxPriority > 0)
+            {
+                qArgs = new Dictionary<string, object>();
+                qArgs["x-max-priority"] = observer.Key.maxPriority;
+            }
 
             var qDeclrae = consumeChannel.QueueDeclare(queue: observer.Key.qName,
                                          durable: true,
                                          exclusive: false,
                                          autoDelete: false,
-                                         arguments: null);
+                                         arguments: qArgs);
 
             consumeChannel.QueueBind(queue: observer.Key.qName,
                                       exchange: _myConfig.exchange,
@@ -373,8 +368,15 @@ namespace neMQConnector
                     Task.Factory.StartNew(async () =>
                     {
                         MQSubjectModel msgSubject =null;
+                        byte msgPriority = 0;
+                        if(null != ea.BasicProperties && ea.BasicProperties.Priority > 0)
+                        {
+                            msgPriority = ea.BasicProperties.Priority;
+                        }
                         try
                         {
+
+
                             var message = Encoding.UTF8.GetString(ea.Body);
                             _logger.LogDebug($"RabbitMQ message {ea.DeliveryTag} Received '{ea.RoutingKey}':'{message}'");
 
@@ -390,8 +392,10 @@ namespace neMQConnector
                                 throw new QNoRetryException($"MQSubjectModel cannot be deserialized :{message} ", inner: ex);
                             }
 
+                            
                             var dataToSend = new MQObserverFnParamsModel
                             {
+                                isRedelivered = ea.Redelivered,
                                 deliveryTag = ea.DeliveryTag,
                                 message = msgSubject,
                                 routingKey = ea.RoutingKey,
@@ -423,6 +427,8 @@ namespace neMQConnector
                                 consumeChannel.BasicReject(ea.DeliveryTag, false);
                             }
 
+                            /* DEE seems like we cannot guarentee that the message will be published
+                             * NO idea why manuall re -publishing just doesnt work. The message gets lost 
                             if(null == msgSubject.connectorInstanceData)
                             {
                                 _logger.LogDebug("this message does not uses advance requing");
@@ -447,9 +453,14 @@ namespace neMQConnector
                                 _logger.LogDebug($"message {ea.DeliveryTag} has failed {retryCount} times.");
                             }
 
-                            await this.publishAsync(ea.RoutingKey, msgSubject);
+                            
+                            
+                            await this.publishAsync(ea.RoutingKey, msgSubject, msgPriority);
 
                             consumeChannel.BasicReject(ea.DeliveryTag, false);
+                            */
+
+                            consumeChannel.BasicReject(ea.DeliveryTag, true);
 
                             //dee todo: Dead Exchange logic here
 
@@ -469,60 +480,7 @@ namespace neMQConnector
             observer.Value.channel = consumeChannel;
         }
 
-        IModel _publishChannel = null;
-        void startPublisher()
-        {
-            try
-            {
-                _publishChannel = _amqpConn.CreateModel();
-
-                _publishChannel.ModelShutdown += (o, e) =>
-                {
-                    _logger.LogWarning($"ModelShutdown : {e}");
-                };
-
-
-                _publishChannel.CallbackException += (o, e) =>
-                {
-                    _logger.LogWarning(e.Exception, $"CallbackException");
-                };
-
-                _publishChannel.ExchangeDeclare(exchange: _myConfig.exchange, type: "topic", durable: true);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to open RabbitMQ channel");
-                _amqpConn.Close();
-            }
-
-        }
-
-        public async Task publishAsync(string routingKey, MQSubjectModel message)
-        {
-            try
-            {
-                var properties = _publishChannel.CreateBasicProperties();
-                properties.Persistent = true;
-
-                var msgStr = JsonConvert.SerializeObject(message);
-
-                _publishChannel.BasicPublish(exchange: _myConfig.exchange,
-                     routingKey: routingKey,
-                     basicProperties: properties,
-                     body: Encoding.UTF8.GetBytes(msgStr));
-
-                //_publishChannel.WaitForConfirmsOrDie();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "failed to publish");
-                await Task.Delay(TimeSpan.FromSeconds(5));
-                await publishAsync(routingKey, message);
-            }
-
-        }
-
-
+        
 
     }
 

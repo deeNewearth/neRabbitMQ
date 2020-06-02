@@ -34,11 +34,14 @@ namespace neMQConnector
         [ExportAsOptional]
         public string qualifiedName => this.GetType().AssemblyQualifiedName;
 
+        /* MQSubjectModelConverter is NOT able to deserliaze this.. we need another way
         /// <summary>
         /// contains internal data for a consumer 
         /// </summary>
         [JsonIgnore]
         public Dictionary<Guid, ConnectorInfoModel> connectorInstanceData { get; set; }
+        */
+
 
         public T convertedTo<T>() where T: MQSubjectModel
         {
@@ -61,7 +64,7 @@ namespace neMQConnector
         [JsonConstructor]
         private MQSubjectModel()
         {
-            connectorInstanceData = new Dictionary<Guid, ConnectorInfoModel>();
+            //connectorInstanceData = new Dictionary<Guid, ConnectorInfoModel>();
         }
     }
 

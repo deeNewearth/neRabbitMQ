@@ -22,7 +22,7 @@ namespace neMQConnector
         Task StartAsync();
         void Teardown();
 
-        Task publishAsync(string routingKey, MQSubjectModel message);
+        Task publishAsync(string routingKey, MQSubjectModel message, byte priority = 0, TimeSpan? timeOut = null);
 
         /// <summary>
         /// Subscribe to a message Q
@@ -49,5 +49,7 @@ namespace neMQConnector
         void RemoveObserver(MQObserverIdModel observerId);
 
         IReadOnlyDictionary<MQObserverIdModel, IMqCallback> currentObservers { get; }
+
+        Guid currentInstanceId { get; }
     }
 }

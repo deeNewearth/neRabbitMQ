@@ -38,6 +38,9 @@ namespace neMQConnector
         [ExportAsOptional]
         public ushort preFetchCount { get; set; }
 
+        [ExportAsOptional]
+        public byte maxPriority { get; set; }
+
         /// <summary>
         /// Q name in rabbit MQ
         /// </summary>
@@ -46,7 +49,7 @@ namespace neMQConnector
         {
             get
             {
-                var ret = $"{name}_{routingKey}_{preFetchCount}";
+                var ret = $"{name}_{routingKey}_{preFetchCount}_p{maxPriority}";
 
                 if (pullEnabled)
                 {
